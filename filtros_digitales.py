@@ -1,259 +1,271 @@
+"""
+Actividad Formativa 3: Implementación y evaluación de filtros digitales
+Alumno: Abraham Rubén Tamez Rodríguez
+Materia: SEÑALES Y SISTEMAS (A) (2025-3)
+Docente: Ing. Armando Valeriano García García
+
+Descripción:
+Este programa genera una señal compuesta con ruido blanco, diseña filtros pasa bajos, pasa altos y pasa bandas (IIR y FIR), 
+los aplica a la señal y analiza los resultados en el dominio del tiempo y de la frecuencia. 
+También calcula la relación señal/ruido (SNR) para evaluar la efectividad de cada filtro.
+"""
+
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.signal as signal
 
-# Frecuencia de muestreo y duración
-fs = 1000.0      # Hz
-T = 2.0           # segundos
-N = int(T * fs)   # número total de muestras
+
+# =====================================================================
+# 1. GENERACIÓN DE LA SEÑAL DE PRUEBA
+# =====================================================================
+# Señal compuesta de tres frecuencias (30, 150 y 300 Hz) con ruido blanco.
+
+fs = 1000.0       # Frecuencia de muestreo [Hz]
+T = 2.0           # Duración total [s]
+N = int(T * fs)   # Número total de muestras
 t = np.arange(N) / fs
 
-# Señal "limpia": tres frecuencias diferentes (30, 150 y 300 Hz)
-x_clean = (0.9 * np.sin(2*np.pi*30*t) +
-           0.6 * np.sin(2*np.pi*150*t) +
-           0.4 * np.sin(2*np.pi*300*t))
+# Señal "limpia"
+x_clean = (
+    0.9 * np.sin(2 * np.pi * 30  * t) +
+    0.6 * np.sin(2 * np.pi * 150 * t) +
+    0.4 * np.sin(2 * np.pi * 300 * t)
+)
 
-# Añadimos ruido blanco (semilla fija para reproducibilidad)
+# Ruido blanco gaussiano
 np.random.seed(42)
 noise = 0.8 * np.random.randn(N)
-x = x_clean + noise # señal total: señal limpia + ruido
 
-# ----- Gráficas -----
-# Dominio del tiempo
+# Señal ruidosa (observada)
+x = x_clean + noise
+
+
+# =====================================================================
+# 2. FUNCIONES AUXILIARES (ESPECTRO Y SNR)
+# =====================================================================
+
+def spec_db(sig, fs):
+    """
+    Calcula el espectro de magnitud en dB de una señal sig, usando FFT
+    de una sola cara con ventana de Hanning.
+    """
+    N = len(sig)
+    S = np.fft.rfft(sig * np.hanning(N))
+    f_ax = np.fft.rfftfreq(N, d=1/fs)
+    mag_db = 20 * np.log10(np.maximum(np.abs(S), 1e-12))
+    return f_ax, mag_db
+
+
+def snr_db(x_obs, x_ref):
+    """
+    Calcula la relación señal/ruido (SNR) en dB tomando como referencia
+    x_ref (señal ideal) y x_obs (señal observada o filtrada).
+    """
+    noise = x_obs - x_ref
+    Ps = np.mean(x_ref**2)
+    Pn = np.mean(noise**2) if np.mean(noise**2) > 0 else 1e-12
+    return 10 * np.log10(Ps / Pn)
+
+
+# =====================================================================
+# 3. ANÁLISIS INICIAL: SEÑAL ORIGINAL EN TIEMPO Y FRECUENCIA
+# =====================================================================
+
+# Tiempo
 plt.figure()
-plt.title("Señal original (tiempo)")
+plt.title("Señal original ruidosa - Tiempo")
 plt.plot(t, x)
 plt.xlabel("Tiempo [s]")
 plt.ylabel("Amplitud")
 plt.grid(True)
 
-# Dominio de la frecuencia -- Transformada Rápida de Fourier (FFT) ---
-X = np.fft.rfft(x * np.hanning(N)) # ventana Hanning para suavizar el espectro
-f = np.fft.rfftfreq(N, d=1/fs)
-
+# Frecuencia
+f_orig, X_orig_db = spec_db(x, fs)
 plt.figure()
-plt.title("Señal original (frecuencia)")
-plt.plot(f, 20*np.log10(np.maximum(np.abs(X), 1e-12)))
+plt.title("Señal original ruidosa - Frecuencia")
+plt.plot(f_orig, X_orig_db)
 plt.xlabel("Frecuencia [Hz]")
 plt.ylabel("Magnitud [dB]")
 plt.grid(True)
 
-plt.show()
+
+# =====================================================================
+# 4. DISEÑO DE LOS FILTROS DIGITALES (IIR Y FIR)
+# =====================================================================
+
+# 4.1 Filtro pasa-bajos Butterworth (fc = 100 Hz, orden 4)
+b_lp, a_lp = signal.butter(N=4, Wn=100.0, btype="low", fs=fs)
+
+# 4.2 Filtro pasa-altos Chebyshev I (fc = 120 Hz, orden 4, rizado 1 dB)
+b_hp, a_hp = signal.cheby1(N=4, rp=1, Wn=120.0, btype="high", fs=fs)
+
+# 4.3 Filtro pasa-bandas FIR con ventana Hamming (100–200 Hz, 129 coeficientes)
+b_bp = signal.firwin(
+    numtaps=129,
+    cutoff=[100.0, 200.0],
+    pass_zero=False,
+    window="hamming",
+    fs=fs
+)
+a_bp = 1.0
 
 
-# ===== Paso 3A: Diseño del filtro pasa-bajos =====
-from scipy import signal
+# =====================================================================
+# 5. RESPUESTA EN FRECUENCIA DE LOS FILTROS
+# =====================================================================
 
-# Diseño del filtro Butterworth de orden 4
-b_lp, a_lp = signal.butter(N=4, Wn=100.0, btype='low', fs=fs)
-
-# Respuesta en frecuencia del filtro 
-w, h = signal.freqz(b_lp, a_lp, worN=2048, fs=fs)
-
+# Pasa-bajos Butterworth
+w_lp, h_lp = signal.freqz(b_lp, a_lp, worN=2048, fs=fs)
 plt.figure()
 plt.title("LP Butterworth (fc=100 Hz) - Magnitud")
-plt.plot(w, 20*np.log10(np.maximum(np.abs(h), 1e-12)))
+plt.plot(w_lp, 20 * np.log10(np.maximum(np.abs(h_lp), 1e-12)))
 plt.xlabel("Frecuencia [Hz]")
 plt.ylabel("Magnitud [dB]")
 plt.grid(True)
 
 plt.figure()
 plt.title("LP Butterworth (fc=100 Hz) - Fase")
-plt.plot(w, np.unwrap(np.angle(h)))
+plt.plot(w_lp, np.unwrap(np.angle(h_lp)))
 plt.xlabel("Frecuencia [Hz]")
 plt.ylabel("Fase [rad]")
 plt.grid(True)
 
-# plt.show() los converti el comando en comentario para que solo muestre al final 
-
-
-# ===== Paso 3B: Aplicar el filtro pasa-bajos a la señal =====
-from scipy import signal
-
-# Aplicar el filtro con filtfilt (fase cero, evita desfase)
-y_lp = signal.filtfilt(b_lp, a_lp, x)
-
-# --- Señal filtrada en el tiempo ---
+# Pasa-altos Chebyshev I
+w_hp, h_hp = signal.freqz(b_hp, a_hp, worN=2048, fs=fs)
 plt.figure()
-plt.title("Señal filtrada (pasa-bajos) - Tiempo")
-plt.plot(t, y_lp)
-plt.xlabel("Tiempo [s]")
-plt.ylabel("Amplitud")
-plt.grid(True)
-
-# --- Espectro de la señal filtrada ---
-Y_lp = np.fft.rfft(y_lp * np.hanning(N))
-f = np.fft.rfftfreq(N, d=1/fs)
-
-plt.figure()
-plt.title("Señal filtrada (pasa-bajos) - Frecuencia")
-plt.plot(f, 20*np.log10(np.maximum(np.abs(Y_lp), 1e-12)))
+plt.title("HP Chebyshev I (fc=120 Hz, rp=1 dB) - Magnitud")
+plt.plot(w_hp, 20 * np.log10(np.maximum(np.abs(h_hp), 1e-12)))
 plt.xlabel("Frecuencia [Hz]")
 plt.ylabel("Magnitud [dB]")
 plt.grid(True)
 
-# plt.show() los converti el comando en comentario para que solo muestre al final 
+plt.figure()
+plt.title("HP Chebyshev I (fc=120 Hz, rp=1 dB) - Fase")
+plt.plot(w_hp, np.unwrap(np.angle(h_hp)))
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("Fase [rad]")
+plt.grid(True)
+
+# Pasa-bandas FIR Hamming
+w_bp, h_bp = signal.freqz(b_bp, a_bp, worN=2048, fs=fs)
+plt.figure()
+plt.title("BP FIR Hamming (100–200 Hz) - Magnitud")
+plt.plot(w_bp, 20 * np.log10(np.maximum(np.abs(h_bp), 1e-12)))
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("Magnitud [dB]")
+plt.grid(True)
+
+plt.figure()
+plt.title("BP FIR Hamming (100–200 Hz) - Fase")
+plt.plot(w_bp, np.unwrap(np.angle(h_bp)))
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("Fase [rad]")
+plt.grid(True)
 
 
-# ===== Comparación directa y SNR del LP (100 Hz) =====
-import numpy as np
-import matplotlib.pyplot as plt
+# =====================================================================
+# 6. APLICACIÓN DE LOS FILTROS A LA SEÑAL RUIDOSA
+# =====================================================================
 
-# 1) Tiempo: original vs filtrada con zoom
+# Pasa-bajos (fase cero)
+y_lp = signal.filtfilt(b_lp, a_lp, x)
+
+# Pasa-altos (fase cero)
+y_hp = signal.filtfilt(b_hp, a_hp, x)
+
+# Pasa-bandas FIR (puede usarse filtfilt, aquí se usa filtfilt para fase cero)
+y_bp = signal.filtfilt(b_bp, a_bp, x)
+
+
+# =====================================================================
+# 7. COMPARACIÓN EN TIEMPO Y FRECUENCIA + SNR
+# =====================================================================
+
+# --- 7.1 Pasa-bajos: comparación y SNR respecto a 30 Hz ---
+ref30 = 0.9 * np.sin(2 * np.pi * 30 * t)
+
 plt.figure()
 plt.title("Tiempo: original vs filtrada (LP 100 Hz)")
 plt.plot(t, x, label="Original", alpha=0.45)
 plt.plot(t, y_lp, label="Filtrada (LP 100 Hz)", linewidth=1.5)
-plt.xlabel("Tiempo [s]"); plt.ylabel("Amplitud"); plt.grid(True); plt.legend()
-plt.xlim(0, 0.2)  # zoom 0–0.2 s para ver la suavización
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Amplitud")
+plt.grid(True)
+plt.legend()
+plt.xlim(0, 0.2)  # zoom 0–0.2 s
 
-# 2) Frecuencia: espectros superpuestos en dB, la cual es la función auxiliar para obtener espectro en dB
-def spec_db(sig, fs):
-    N = len(sig)
-    S = np.fft.rfft(sig * np.hanning(N))
-    f = np.fft.rfftfreq(N, d=1/fs)
-    return f, 20*np.log10(np.maximum(np.abs(S), 1e-12))
-
-# Espectros superpuestos
-f_ax, X_db = spec_db(x, fs)
-_,    Y_db = spec_db(y_lp, fs)
-
+f_lp, Y_lp_db = spec_db(y_lp, fs)
 plt.figure()
 plt.title("Frecuencia: original vs filtrada (LP 100 Hz)")
-plt.plot(f_ax, X_db, label="Original", alpha=0.45)
-plt.plot(f_ax, Y_db, label="Filtrada (LP 100 Hz)", linewidth=1.5)
-plt.xlabel("Frecuencia [Hz]"); plt.ylabel("Magnitud [dB]"); plt.grid(True); plt.legend()
+plt.plot(f_orig, X_orig_db, label="Original", alpha=0.45)
+plt.plot(f_lp,   Y_lp_db,   label="Filtrada (LP 100 Hz)", linewidth=1.5)
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("Magnitud [dB]")
+plt.grid(True)
+plt.legend()
 plt.xlim(0, 500)
 
-# 3) SNR respecto a 30 Hz (la componente que debe preservarse)
-def snr_db(x_obs, x_ref):
-    noise = x_obs - x_ref
-    Ps = np.mean(x_ref**2)
-    Pn = np.mean(noise**2) if np.mean(noise**2) > 0 else 1e-12
-    return 10*np.log10(Ps/Pn)
-
-ref30 = 0.9*np.sin(2*np.pi*30*t)
-print("SNR (dB) original vs 30 Hz:", snr_db(x, ref30))
-print("SNR (dB) LP      vs 30 Hz:", snr_db(y_lp, ref30))
-
-# plt.show() los converti el comando en comentario para que solo muestre al final 
-
-# ===== Pasa-altos Chebyshev I (fc=120 Hz, orden 4, rizado 1 dB) =====
-from scipy import signal
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Diseño Chebyshev tipo I (orden 4, rizado de 1 dB)
-b_hp, a_hp = signal.cheby1(N=4, rp=1, Wn=120.0, btype='high', fs=fs)
-
-# Respuesta en frecuencia
-w_hp, h_hp = signal.freqz(b_hp, a_hp, worN=2048, fs=fs)
-plt.figure(); plt.title("HP Chebyshev I (fc=120 Hz, rp=1 dB) - Magnitud")
-plt.plot(w_hp, 20*np.log10(np.maximum(np.abs(h_hp), 1e-12))); plt.xlabel("Frecuencia [Hz]")
-plt.ylabel("Magnitud [dB]"); plt.grid(True)
-
-plt.figure(); plt.title("HP Chebyshev I (fc=120 Hz, rp=1 dB) - Fase")
-plt.plot(w_hp, np.unwrap(np.angle(h_hp))); plt.xlabel("Frecuencia [Hz]")
-plt.ylabel("Fase [rad]"); plt.grid(True)
+print("SNR (dB) original vs 30 Hz:", snr_db(x,    ref30))
+print("SNR (dB) LP       vs 30 Hz:", snr_db(y_lp, ref30))
 
 
-# ===== Filtrado y comparación (tiempo y frecuencia) =====
-y_hp = signal.filtfilt(b_hp, a_hp, x)   # fase cero
+# --- 7.2 Pasa-altos: comparación y SNR respecto a 300 Hz ---
+ref300 = 0.4 * np.sin(2 * np.pi * 300 * t)
 
-# Tiempo con superposición (zoom para notar diferencias)
-plt.figure(); plt.title("Tiempo: original vs filtrada (HP 120 Hz)")
-plt.plot(t, x,  label="Original", alpha=0.45)
+plt.figure()
+plt.title("Tiempo: original vs filtrada (HP 120 Hz)")
+plt.plot(t, x,   label="Original", alpha=0.45)
 plt.plot(t, y_hp, label="Filtrada (HP 120 Hz)", linewidth=1.5)
-plt.xlabel("Tiempo [s]"); plt.ylabel("Amplitud"); plt.grid(True); plt.legend()
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Amplitud")
+plt.grid(True)
+plt.legend()
 plt.xlim(0, 0.2)
 
-# Frecuencia con superposición en dB
-def spec_db(sig, fs):
-    N = len(sig); S = np.fft.rfft(sig * np.hanning(N))
-    f_ax = np.fft.rfftfreq(N, d=1/fs)
-    return f_ax, 20*np.log10(np.maximum(np.abs(S), 1e-12))
-
-# Comparación espectral
-f_ax, X_db  = spec_db(x, fs)
-_,    Yh_db = spec_db(y_hp, fs)
-
-plt.figure(); plt.title("Frecuencia: original vs filtrada (HP 120 Hz)")
-plt.plot(f_ax, X_db,  label="Original", alpha=0.45)
-plt.plot(f_ax, Yh_db, label="Filtrada (HP 120 Hz)", linewidth=1.5)
-plt.xlabel("Frecuencia [Hz]"); plt.ylabel("Magnitud [dB]")
-plt.grid(True); plt.legend(); plt.xlim(0, 500)
-
-
-# ===== SNR: ¿mejora al aislar altas frecuencias (300 Hz)? =====
-def snr_db(x_obs, x_ref):
-    noise = x_obs - x_ref
-    Ps = np.mean(x_ref**2); Pn = np.mean(noise**2) if np.mean(noise**2)>0 else 1e-12
-    return 10*np.log10(Ps/Pn)
-
-ref300 = 0.4*np.sin(2*np.pi*300*t)
+f_hp_sig, Y_hp_db = spec_db(y_hp, fs)
+plt.figure()
+plt.title("Frecuencia: original vs filtrada (HP 120 Hz)")
+plt.plot(f_orig, X_orig_db, label="Original", alpha=0.45)
+plt.plot(f_hp_sig, Y_hp_db, label="Filtrada (HP 120 Hz)", linewidth=1.5)
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("Magnitud [dB]")
+plt.grid(True)
+plt.legend()
+plt.xlim(0, 500)
 
 print("SNR (dB) original vs 300 Hz:", snr_db(x,    ref300))
 print("SNR (dB) HP       vs 300 Hz:", snr_db(y_hp, ref300))
 
 
-# plt.show() los converti el comando en comentario para que solo muestre al final 
+# --- 7.3 Pasa-bandas: comparación y SNR respecto a 150 Hz ---
+ref150 = 0.6 * np.sin(2 * np.pi * 150 * t)
 
-# ===== Pasa-bandas FIR (100–200 Hz, 129 coeficientes, ventana Hamming) =====
-from scipy import signal
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Diseño del filtro FIR con 129 coeficientes
-b_bp = signal.firwin(numtaps=129, cutoff=[100.0, 200.0], pass_zero=False,
-                     window='hamming', fs=fs)
-a_bp = 1.0
-
-# Respuesta en frecuencia del FIR
-w_bp, h_bp = signal.freqz(b_bp, a_bp, worN=2048, fs=fs)
-plt.figure(); plt.title("BP FIR Hamming (100–200 Hz) - Magnitud")
-plt.plot(w_bp, 20*np.log10(np.maximum(np.abs(h_bp), 1e-12)))
-plt.xlabel("Frecuencia [Hz]"); plt.ylabel("Magnitud [dB]"); plt.grid(True)
-
-plt.figure(); plt.title("BP FIR Hamming (100–200 Hz) - Fase")
-plt.plot(w_bp, np.unwrap(np.angle(h_bp)))
-plt.xlabel("Frecuencia [Hz]"); plt.ylabel("Fase [rad]"); plt.grid(True)
-
-# ===== Aplicar el filtro y comparar =====
-y_bp = signal.filtfilt(b_bp, a_bp, x)
-
-# Tiempo con zoom
-plt.figure(); plt.title("Tiempo: original vs filtrada (BP 100–200 Hz)")
-plt.plot(t, x,  label="Original", alpha=0.45)
+plt.figure()
+plt.title("Tiempo: original vs filtrada (BP 100–200 Hz)")
+plt.plot(t, x,   label="Original", alpha=0.45)
 plt.plot(t, y_bp, label="Filtrada (BP 100–200 Hz)", linewidth=1.5)
-plt.xlabel("Tiempo [s]"); plt.ylabel("Amplitud"); plt.grid(True); plt.legend()
+plt.xlabel("Tiempo [s]")
+plt.ylabel("Amplitud")
+plt.grid(True)
+plt.legend()
 plt.xlim(0, 0.2)
 
-# Frecuencia superpuesta
-def spec_db(sig, fs):
-    N = len(sig); S = np.fft.rfft(sig * np.hanning(N))
-    f_ax = np.fft.rfftfreq(N, d=1/fs)
-    return f_ax, 20*np.log10(np.maximum(np.abs(S), 1e-12))
-
-# Comparación espectral
-f_ax, X_db = spec_db(x, fs)
-_,    Yb_db = spec_db(y_bp, fs)
-
-plt.figure(); plt.title("Frecuencia: original vs filtrada (BP 100–200 Hz)")
-plt.plot(f_ax, X_db, label="Original", alpha=0.45)
-plt.plot(f_ax, Yb_db, label="Filtrada (BP 100–200 Hz)", linewidth=1.5)
-plt.xlabel("Frecuencia [Hz]"); plt.ylabel("Magnitud [dB]"); plt.grid(True); plt.legend()
+f_bp_sig, Y_bp_db = spec_db(y_bp, fs)
+plt.figure()
+plt.title("Frecuencia: original vs filtrada (BP 100–200 Hz)")
+plt.plot(f_orig, X_orig_db, label="Original", alpha=0.45)
+plt.plot(f_bp_sig, Y_bp_db, label="Filtrada (BP 100–200 Hz)", linewidth=1.5)
+plt.xlabel("Frecuencia [Hz]")
+plt.ylabel("Magnitud [dB]")
+plt.grid(True)
+plt.legend()
 plt.xlim(0, 500)
 
-# ===== SNR respecto a 150 Hz =====
-def snr_db(x_obs, x_ref):
-    noise = x_obs - x_ref
-    Ps = np.mean(x_ref**2)
-    Pn = np.mean(noise**2) if np.mean(noise**2)>0 else 1e-12
-    return 10*np.log10(Ps/Pn)
+print("SNR (dB) original vs 150 Hz:", snr_db(x,    ref150))
+print("SNR (dB) BP       vs 150 Hz:", snr_db(y_bp, ref150))
 
 
-# SNR con respecto a la componente de 150 Hz
-ref150 = 0.6*np.sin(2*np.pi*150*t)
-print("SNR (dB) original vs 150 Hz:", snr_db(x, ref150))
-print("SNR (dB) BP        vs 150 Hz:", snr_db(y_bp, ref150))
-
+# =====================================================================
+# 8. MOSTRAR TODAS LAS GRÁFICAS
+# =====================================================================
 plt.show()
